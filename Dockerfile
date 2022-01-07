@@ -6,7 +6,7 @@ RUN apt-get update \
     && apt-get autoclean \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /inaSpeechSegmenter
+WORKDIR /speech_segmenter
 COPY . ./
 
 RUN pip install --upgrade pip && pip install . && pip cache purge

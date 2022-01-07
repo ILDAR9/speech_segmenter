@@ -11,9 +11,10 @@ from .thread_returning import ThreadReturning
 import shutil
 import time
 import random
+from tqdm.auto import tqdm
 
 from skimage.util import view_as_windows as vaw
-
+from typing import List
 
 from pyannote.algorithms.utils.viterbi import viterbi_decoding
 from .viterbi_utils import pred2logemission, diag_trans_exp, log_trans_exp
@@ -21,7 +22,11 @@ from .viterbi_utils import pred2logemission, diag_trans_exp, log_trans_exp
 from .features import media2feats
 from .export_funcs import seg2csv, seg2textgrid
 
-
+# Disable static full memory allocation in GPU
+# import tensorflow as tf
+# gpus = tf.config.experimental.list_physical_devices('GPU')
+# for gpu in gpus:
+#     tf.config.experimental.set_memory_growth(gpu, True)
 
 def _energy_activity(loge, ratio):
     threshold = np.mean(loge[np.isfinite(loge)]) + np.log(ratio)
@@ -110,9 +115,11 @@ class DnnSegmenter:
             if lab == self.inlabel:
                 batch.append(patches[start:stop, :])
 
-        if len(batch) > 0:
+        if len(batch) > 0 and batch[0].shape[0] > 0:
             batch = np.concatenate(batch)
             rawpred = self.nn.predict(batch, batch_size=self.batch_size)
+        else:
+            return None
 
         ret = []
         for lab, start, stop in lseg:
@@ -156,7 +163,7 @@ class Gender(DnnSegmenter):
 
 
 class Segmenter:
-    def __init__(self, vad_engine='smn', detect_gender=True, ffmpeg='ffmpeg', batch_size=32, energy_ratio=0.03):
+    def __init__(self, vad_engine='smn', detect_gender=True, ffmpeg='ffmpeg', batch_size=256, energy_ratio=0.03):
         """
         Load neural network models
         
@@ -172,8 +179,9 @@ class Segmenter:
         """      
 
         # test ffmpeg installation
-        if shutil.which(ffmpeg) is None:
+        if ffmpeg and shutil.which(ffmpeg) is None:
             raise(Exception("""ffmpeg program not found"""))
+        print('ffmpeg parameter:', ffmpeg)
         self.ffmpeg = ffmpeg
 
 #        self.graph = KB.get_session().graph # To prevent the issue of keras with tensorflow backend for async tasks
@@ -198,12 +206,9 @@ class Segmenter:
     def segment_feats(self, mspec, loge, difflen, start_sec):
         """
         do segmentation
-        require input corresponding to wav file sampled at 16000Hz
+        require input corresponding to wav file sampled at 8000Hz
         with a single channel
         """
-
-
-
 
         # perform energy-based activity detection
         lseg = []
@@ -216,6 +221,8 @@ class Segmenter:
 
         # perform voice activity detection
         lseg = self.vad(mspec, lseg, difflen)
+        if lseg is None:
+            return None
 
         # perform gender segmentation on speech segments
         if self.detect_gender:
@@ -246,8 +253,7 @@ class Segmenter:
     
     def batch_process(self, linput, loutput, tmpdir=None, verbose=False, skipifexist=False, nbtry=1, trydelay=2., output_format='csv'):
         
-        if verbose:
-            print('batch_processing %d files' % len(linput))
+        print('batch_processing %d files' % len(linput))
 
         if output_format == 'csv':
             fexport = seg2csv
@@ -261,18 +267,20 @@ class Segmenter:
         lmsg = []
         fg = featGenerator(linput.copy(), loutput.copy(), tmpdir, self.ffmpeg, skipifexist, nbtry, trydelay)
         i = 0
-        for feats, msg in fg:
-            lmsg += msg
+        for feats, msg in tqdm(fg, total=len(linput)):
             i += len(msg)
             if verbose:
                 print('%d/%d' % (i, len(linput)), msg)
             if feats is None:
-                break
+                continue
+                # break
+            lmsg += msg
             mspec, loge, difflen = feats
-            #if verbose == True:
-            #    print(i, linput[i], loutput[i])
+            # print('mspec', mspec.shape, 'loge', loge.shape)
             b = time.time()
             lseg = self.segment_feats(mspec, loge, difflen, 0)
+            if lseg is None:
+                continue
             fexport(lseg, loutput[len(lmsg) -1])
             lmsg[-1] = (lmsg[-1][0], lmsg[-1][1], 'ok ' + str(time.time() -b))
 
@@ -285,56 +293,50 @@ class Segmenter:
         return t_batch_dur, nb_processed, avg, lmsg
 
 
-def medialist2feats(lin, lout, tmpdir, ffmpeg, skipifexist, nbtry, trydelay):
+def medialist2feats(lin: List[str], lout: List[str], tmpdir: str, ffmpeg, skipifexist: bool, nbtry: int, trydelay: float):
     """
     To be used when processing batches
     if resulting file exists, it is skipped
     in case of remote files, access is tried nbtry times
     """
+    if len(lin) == 0:
+        raise Exception("Empty lin variable")
     ret = None
     msg = []
-    while ret is None and len(lin) > 0:
-        src = lin.pop(0)
-        dst = lout.pop(0)
-#        print('popping', src)
-        
-        # if file exists: skipp
-        if skipifexist and os.path.exists(dst):
-            msg.append((dst, 1, 'already exists'))
-            continue
+    src = lin.pop(0)
+    dst = lout.pop(0)
 
-        # create storing directory if required
-        dname = os.path.dirname(dst)
-        if not os.path.isdir(dname):
-            os.makedirs(dname)
-        
-        itry = 0
-        while ret is None and itry < nbtry:
-            try:
-                ret = media2feats(src, tmpdir, None, None, ffmpeg)
-            except:
-                itry += 1
-                errmsg = sys.exc_info()[0]
-                if itry != nbtry:
-                    time.sleep(random.random() * trydelay)
-        if ret is None:
-            msg.append((dst, 2, 'error: ' + str(errmsg)))
-        else:
-            msg.append((dst, 0, 'ok'))
+    # if file exists: skipp
+    if skipifexist and os.path.exists(dst):
+        msg.append((dst, 1, 'already exists'))
+    
+    itry = 0
+    errmsg = "Failed to load " + src
+    while ret is None and itry < nbtry:
+        try:
+            ret = media2feats(src, tmpdir, None, None, ffmpeg)
+        except:
+            errmsg = sys.exc_info()[0]
+            if itry != nbtry:
+                time.sleep(random.random() * trydelay)
+        itry += 1
+    if ret is None:
+        msg.append((dst, 2, 'error: ' + str(errmsg)))
+    else:
+        msg.append((dst, 0, 'ok'))
             
     return ret, msg
 
     
-def featGenerator(ilist, olist, tmpdir=None, ffmpeg='ffmpeg', skipifexist=False, nbtry=1, trydelay=2.):
-#    print('init feat gen', len(ilist))
+def featGenerator(ilist: List[str], olist: List[str], tmpdir=None, ffmpeg='ffmpeg', skipifexist=False, nbtry=1, trydelay=2.):
     thread = ThreadReturning(target = medialist2feats, args=[ilist, olist, tmpdir, ffmpeg, skipifexist, nbtry, trydelay])
     thread.start()
     while True:
         ret, msg = thread.join()
-#        print('join done', len(ilist))
-#        print('new list', ilist)
-        #ilist = ilist[len(msg):]
-        #olist = olist[len(msg):]
+        # print('join done', len(ilist))
+        # print('new list', ilist)
+        # ilist = ilist[len(msg):]
+        # olist = olist[len(msg):]
         if len(ilist) == 0:
             break
         thread = ThreadReturning(target = medialist2feats, args=[ilist, olist, tmpdir, ffmpeg, skipifexist, nbtry, trydelay])

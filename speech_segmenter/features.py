@@ -12,18 +12,18 @@ import numpy as np
 from .sidekit_mfcc import read_wav, mfcc
 
 
-def _wav2feats(wavname):
+def _wav2feats(wavname: str):
     """
-    Extract features for wav 16k mono
+    Extract features for wav 8k mono
     """
     ext = os.path.splitext(wavname)[-1]
-    assert ext.lower() == '.wav' or ext.lower() == '.wave'
+    assert ext.lower() == '.wav'
     sig, read_framerate, sampwidth = read_wav(wavname)
     shp = sig.shape
     # wav should contain a single channel
     assert len(shp) == 1 or (len(shp) == 2 and shp[1] == 1)
-    # wav sample rate should be 16000 Hz
-    assert read_framerate == 16000
+    # wav sample rate should be 8000 Hz
+    assert read_framerate == 8000
     # current version of readwav is supposed to return 4
     # whatever encoding is detected within the wav file
     assert sampwidth == 4
@@ -47,15 +47,17 @@ def _wav2feats(wavname):
 
 def media2feats(medianame, tmpdir, start_sec, stop_sec, ffmpeg):
     """
-    Convert media to temp wav 16k file and return features
+    Convert media to temp wav 8k file and return features
     """
-    
+    if not ffmpeg:
+        return _wav2feats(medianame)
+
     base, _ = os.path.splitext(os.path.basename(medianame))
 
     with tempfile.TemporaryDirectory(dir=tmpdir) as tmpdirname:
         # build ffmpeg command line
         tmpwav = tmpdirname + '/' + base + '.wav'
-        args = [ffmpeg, '-y', '-i', medianame, '-ar', '16000', '-ac', '1']
+        args = [ffmpeg, '-y', '-i', medianame, '-ar', '8000', '-ac', '1']
         if start_sec is None:
             start_sec = 0
         else:
@@ -68,7 +70,11 @@ def media2feats(medianame, tmpdir, start_sec, stop_sec, ffmpeg):
         # launch ffmpeg
         p = Popen(args, stdout=PIPE, stderr=PIPE)
         output, error = p.communicate()
+
         assert p.returncode == 0, error
+        # if p.returncode != 0:
+            # return None
+
 
         # Get Mel Power Spectrogram and Energy
         return _wav2feats(tmpwav)

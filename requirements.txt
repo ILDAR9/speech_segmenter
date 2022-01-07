@@ -9,3 +9,4 @@ matplotlib
 Pyro4
 pytextgrid
 soundfile
+tqdm
