@@ -1,6 +1,6 @@
-# inaSpeechSegmenter
+# SpeechSegmenter
 
-inaSpeechSegmenter is a CNN-based audio segmentation toolkit.
+SpeechSegmenter is a CNN-based audio segmentation toolkit.
 
 
 It splits audio signals into homogeneous zones of speech, music and noise.
@@ -9,16 +9,16 @@ Male and female classification models are optimized for French language since th
 Zones corresponding to speech over music or speech over noise are tagged as speech.
 
 
-
+Based on research: 
 "An Open-Source Speaker Gender Detection Framework for Monitoring Gender Equality".
 
-This is customisation of inaSpeechSegmenter works with Python 3.6+.
+This is a specific customisation of inaSpeechSegmenter.
 
 ## Installation
 
 ### Prerequisites
 
-inaSpeechSegmenter requires ffmpeg for decoding any type of format.
+SpeechSegmenter requires ffmpeg for decoding any type of format.
 Installation of ffmpeg for ubuntu can be done using the following commandline:
 ```bash
 $ sudo apt-get install ffmpeg
@@ -31,14 +31,14 @@ $ source tenv/bin/activate
 $ pip install -r requirements.txt
 ```
 
-## Using inaSpeechSegmenter
+## Using SpeechSegmenter
 
 ### Speech Segmentation Program
-Binary program ina_speech_segmenter.py may be used to segment multimedia archives encoded in any format supported by ffmpeg. It requires input media and output csv files corresponding to the segmentation. Corresponding csv may be visualised using softwares such as https://www.sonicvisualiser.org/
+Binary program scripts/speech_segmenter.py may be used to segment multimedia archives encoded in any format supported by ffmpeg. It requires input media and output csv files corresponding to the segmentation. Corresponding csv may be visualised using softwares such as https://www.sonicvisualiser.org/
 ```bash
 # get help
-$ ina_speech_segmenter.py --help
-usage: ina_speech_segmenter.py [-h] -i INPUT [INPUT ...] -o OUTPUT_DIRECTORY [-d {sm,smn}] [-g {true,false}] [-b FFMPEG_BINARY] [-e {csv,textgrid}]
+$ python -m scripts.speech_segmenter --help
+usage: python -m scripts.speech_segmenter [-h] -i INPUT [INPUT ...] -o OUTPUT_DIRECTORY [-d {sm,smn}] [-g {true,false}] [-b FFMPEG_BINARY] [-e {csv,textgrid}]
 
 Do Speech/Music(/Noise) and Male/Female segmentation and store segmentations into CSV files. Segments labelled 'noEnergy' are discarded from music, noise, speech and gender
 analysis. 'speech', 'male' and 'female' labels include speech over music and speech over noise. 'music' and 'noise' labels are pure segments that are not supposed to contain speech.
@@ -66,7 +66,7 @@ optional arguments:
 ```
 ### Using Speech Segmentation API
 
-InaSpeechSegmentation API is intended to be very simple to use.
+SpeechSegmentation API is intended to be very simple to use.
 The class allowing to perform segmentations is called Segmenter.
 It is the only class that you need to import in a program.
 Class constructor accept 3 optional arguments:
